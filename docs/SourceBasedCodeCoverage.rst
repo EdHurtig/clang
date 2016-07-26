@@ -177,6 +177,188 @@ A few final notes:
 
       % llvm-profdata merge -sparse foo1.profraw foo2.profdata -o foo3.profdata
 
+Coverage Exports
+================
+
+Coverage information can be exported into a JSON format for consumption by
+analysis tasks, web interfaces, and other tools. The JSON export format
+contains a metadata section at the top level and a ``data`` array containing
+one or more export objects.
+
+The ``type`` and ``version`` metadata fields should be checked by third party
+tools before processing an export's ``data`` array. The export's version shall
+respect the rules set forth by
+`Semantic Versioning <http://semver.org/spec/v2.0.0.html>`_.
+
+An export contains a list of files and a list of functions:
+
+- Each file contains a filename, a list of segments dividing the file
+  into regions, a list of expansions, and a summary of the file's various
+  coverage metrics (line, region, and functional coverage).
+
+- Each function contains the function name, the number of times the function
+  was executed, the regions that the function contained, and a list of
+  expansion filenames for any expansion regions in the function
+
+Each region record is compressed into an array of integers to save space. As of
+version 1.0.0, the order of the array is as follows:
+
+.. code-block:: console
+
+    [start_line, start_col, end_line, end_col, count, file, expanded_file, kind]
+
+The ``file`` and ``expanded_file`` integers refer to the index of the filenames
+in the following array of ``filenames``.
+
+The ``kind`` integer identifies the region's role:
+
+.. code-block:: console
+
+    0: Code
+    1: Expansion
+    2: Skipped
+
+Segments are compressed into an array in a similar fashion to regions.
+Each segment record should thought of as a divider in the source code.
+The segment's data describes the code following its ``line`` and ``col``
+markers.
+
+In version 1.0.0 of the export format, a segment should be interpreted as
+follows:
+
+.. code-block:: console
+
+    [line, col, count, has_count, is_region]
+
+The ``line`` and ``col`` fields mark the beginning of the segment. ``count``
+contains the counter's value. The
+``has_count`` and ``is_region`` fields will be integer values of ``0`` or ``1``
+and describe the kind of code that the segment marks.
+
+All source before the first segment should be treated as a skipped region.
+
+An example of a very basic coverage export is shown below. This program
+contains a C file with a main function that returns a macro constant defined in
+a header file
+
+.. code-block:: json
+
+    {
+      "version": "1.0.0",
+      "type": "llvm.coverage.json.export",
+      "data": [
+        {
+          "object": "/path/to/foo",
+          "files": [
+            {
+              "filename": "/path/to/./foo.h",
+              "segments": [
+                [1, 20, 1, 1, 1],
+                [1, 21, 0, 0, 0]
+              ],
+              "expansions": [],
+              "summary": {
+                "lines": {
+                  "count": 0,
+                  "covered": 0,
+                  "percent": 0,
+                  "noncode": 0
+                },
+                "functions": {
+                  "count": 0,
+                  "covered": 0,
+                  "percent": 0
+                },
+                "regions": {
+                  "count": 0,
+                  "covered": 0,
+                  "notcovered": 0,
+                  "percent": 0
+                }
+              }
+            },
+            {
+              "filename": "/path/to/foo.c",
+              "segments": [
+                [3, 12, 1, 1, 1],
+                [4, 10, 1, 1, 1],
+                [4, 20, 1, 1, 0],
+                [5, 2, 0, 0, 0]
+              ],
+              "expansions": [
+                {
+                  "source_region": [4, 10, 4, 20, 1, 0, 1, 1],
+                  "target_regions": [
+                    [3, 12, 5, 2, 1, 0, 0, 0],
+                    [4, 10, 4, 20, 1, 0, 1, 1],
+                    [1, 20, 1, 21, 1, 1, 0, 0]
+                  ],
+                  "filenames": [
+                    "/path/to/foo.c",
+                    "/path/to/./foo.h"
+                  ]
+                }
+              ],
+              "summary": {
+                "lines": {
+                  "count": 4,
+                  "covered": 4,
+                  "percent": 100,
+                  "noncode": 0
+                },
+                "functions": {
+                  "count": 1,
+                  "covered": 1,
+                  "percent": 100
+                },
+                "regions": {
+                  "count": 2,
+                  "covered": 2,
+                  "notcovered": 0,
+                  "percent": 100
+                }
+              }
+            }
+          ],
+          "functions": [
+            {
+              "name": "main",
+              "count": 1,
+              "regions": [
+                [3, 12 ,5, 2, 1, 0, 0, 0],
+                [4, 10, 4, 20, 1, 0, 1, 1],
+                [1, 20, 1, 21, 1, 1, 0, 0]
+              ],
+              "filenames": [
+                "/path/to/foo.c",
+                "/path/to/./foo.h"
+              ]
+            }
+          ],
+          "totals": {
+            "lines": {
+              "count": 4,
+              "covered": 4,
+              "percent": 100,
+              "noncode": 0
+            },
+            "functions": {
+              "count": 1,
+              "covered": 1,
+              "percent": 100
+            },
+            "regions": {
+              "count": 2,
+              "covered": 2,
+              "notcovered": 0,
+              "percent": 100
+            }
+          }
+        }
+      ]
+    }
+
+
 Format compatibility guarantees
 ===============================
 
@@ -192,6 +374,10 @@ Format compatibility guarantees
 * There is a third format in play: the format of the coverage mappings emitted
   into instrumented binaries. Tools must retain **backwards** compatibility
   with these formats. These formats are not forwards-compatible.
+
+* The JSON coverage exports are independently versioned with a SemVer version
+  number. Tools consuming JSON exports are expected to verify their own
+  compatibility with the version of the JSON export consumed
 
 Using the profiling runtime without static initializers
 =======================================================
